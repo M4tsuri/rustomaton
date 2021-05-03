@@ -1,19 +1,21 @@
 mod initial {
     use rustomaton::rustomaton;
 
+    /// the context used in this automaton
     #[derive(Clone)]
     pub struct Context {
         pub src: String,
         pub cur: usize
     }
 
+    /// an automaton context must implement Exhausted trait to tell runtime if the input has been exhausted
     impl Exhausted for Context {
         fn exhausted(&self) -> bool {
-            println!("{}", self.cur);
             self.cur == self.src.len()
         }
     }
 
+    /// a custom function
     fn eat_char(pat: &'static str) -> impl Fn(&mut Context) -> bool {
         move |x: &mut Context| {
             if x.src[x.cur..].starts_with(pat) {
@@ -25,7 +27,6 @@ mod initial {
         }
     }
 
-    
     rustomaton!{
         #[input(Context)]
 

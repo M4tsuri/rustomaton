@@ -11,6 +11,10 @@ use parse::Body;
 
 type State = u64;
 
+
+/// genarate the core function doing the execution
+/// 
+/// thanks to our jump table design, this is relatively fast
 fn make_runtime_decl() -> proc_macro2::TokenStream {
     quote! {
         type State = u64;
@@ -44,13 +48,19 @@ fn make_runtime_decl() -> proc_macro2::TokenStream {
         
                 for may_next_state in may_next_states {
                     if let Some(func) = self.transfer.get(&(cur_state, *may_next_state)) {
-                        if func(context) {
-                            if self.fini_states.contains(may_next_state) && context.exhausted() {
+                        if !func(context) {
+                            continue;
+                        }
+
+                        if context.exhausted() {
+                            if self.fini_states.contains(may_next_state) {
                                 return AutomatonResult::Accepted;
                             }
-                            next_state = Some(*may_next_state);
-                            break;
+                            return AutomatonResult::Rejected;
                         }
+                        
+                        next_state = Some(*may_next_state);
+                        break;
                     }
                 }
         
@@ -89,11 +99,44 @@ fn make_binary_clause(expr: &Box<Expr>, arg: &Ident) -> proc_macro2::TokenStream
     }
 }
 
+/// generate implementation of transfer functions.
+///
+/// All generated functions have the form `|arg| -> bool {body}`
+///
+/// for example 
+/// - `_` will be transformed into 
+///   ```
+///   |_| true
+///   ```
+/// - `fun_sym` will be transformed into 
+///
+///   ```
+///   |__arg| {
+///     fun_sym(__arg)
+///   }
+///   ```
+///
+/// - `ret_closure(args)` will be transformed into
+///
+///   ```
+///   |__arg| {
+///     ret_closure(args)(__arg)
+///   }
+///   ```
+///
+///   , which is useful when you are fimiliar with currying
+/// - `fun_sym || ret_closure(args)` will be transformed into 
+///
+///   ```
+///   |__arg| {
+///     fun_sym(__arg) || ret_closure(args)(__arg)
+///   }
+///   ```
 fn make_transfer_fn(func: &Option<Expr>) -> proc_macro2::TokenStream {
     match func {
         None => quote! {|_| true},
         Some(x) => {
-            let arg = format_ident!("arg");
+            let arg = format_ident!("__arg");
             let body = make_binary_clause(&Box::new(x.clone()), &arg);
             quote! {
                 |#arg| {
@@ -104,10 +147,13 @@ fn make_transfer_fn(func: &Option<Expr>) -> proc_macro2::TokenStream {
     }
 }
 
+
+/// generate code to initialize the nodes, edges and transfer functions of this automaton
 fn make_runtime_impl(body: &Body) -> proc_macro2::TokenStream {
     let input_type = &body.input_type;
     let init_state = &body.init_stat;
 
+    // make sure relations and states are only innitialized once
     let mut states_set: HashSet<State> = HashSet::new();
     let mut begin_states_set: HashSet<State> = HashSet::new();
     let mut relations_set: HashSet<(State, State)> = HashSet::new();
@@ -162,14 +208,6 @@ fn make_runtime_impl(body: &Body) -> proc_macro2::TokenStream {
     }).collect();
     
     quote! {
-        #[derive(Debug)]
-        pub struct Tmp {
-            init_state: State,
-            fini_states: ::std::collections::HashSet<State>,
-            states: ::std::collections::HashSet<State>,
-            relations: ::std::collections::HashMap<State, ::std::vec::Vec<State>>,
-        }
-
         pub fn run(src: &mut #input_type) -> AutomatonResult {
             let mut automaton: Automaton<#input_type> = Automaton {
                 init_state: #init_state,
@@ -183,15 +221,6 @@ fn make_runtime_impl(body: &Body) -> proc_macro2::TokenStream {
             #(#fill_states)*
             #(#fill_relations)*
             #(#fill_transfers)*
-
-            let tmp = Tmp {
-                init_state: #init_state,
-                fini_states: automaton.fini_states.clone(),
-                states: automaton.states.clone(),
-                relations: automaton.relations.clone(),
-            };
-
-            println!("{:?}", tmp);
 
             automaton.run(src)
         }
@@ -207,6 +236,44 @@ fn make_runtime(body: &Body) -> proc_macro2::TokenStream {
     }
 }
 
+/// out proc_macro which makes a runtime from our automaton definition
+    /// the grammar is:
+    /// 
+    /// ```
+    /// rustomaton! {
+    ///     #[input(name_of_the_context_structure)]
+    ///     /// we use u64 type index to distinguish different states
+    ///     /// an automaton can only have one initial state
+    ///     #[init(initial_state)]
+    ///     /// an automaton can have multiple final states 
+    ///     #[ends(final_state1, final_state2, ...)]
+    ///     
+    ///     /// an automaton edge has the form: 
+    ///     start -> end: transfer_function;
+    ///     
+    ///     /// a transfer function function can be empty:
+    ///     start -> end: _;
+    ///     
+    ///     /// or anything can be called and returns a bool value:
+    ///     start -> end: fun_symbol;
+    ///     start -> end: fun_returning_a_closure(args);
+    ///     
+    ///     /// or a bool expression
+    ///     start -> end: (fun_sym1 && fun_sym2) || fun_returning_a_closure(args);
+    ///
+    ///     /// note that there cannot be two rules with the same edge, use a OR instead
+    /// ```
+    /// 
+    /// this macro will generate a function named `run` in current namespace, its declaration is
+    /// 
+    /// ```
+    /// impl <T: Exhausted> Automaton<T> {
+    ///     pub fn run(&self, mut context: &mut T) -> AutomatonResult;
+    /// }
+    /// ```
+    /// 
+    /// call this function with your context, then it will return a result, either Accepted or Rejected
+    ///
 #[proc_macro]
 pub fn rustomaton(item: TokenStream) -> TokenStream {
     let input: Body = parse_macro_input!(item as Body);
