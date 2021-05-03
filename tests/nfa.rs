@@ -29,7 +29,6 @@ mod initial {
 
     rustomaton!{
         #[input(Context)]
-
         #[init(0)]
         #[ends(7)]
 
@@ -48,8 +47,10 @@ mod initial {
 
 #[test]
 fn test_tmp() {
-    println!("{:?}", initial::run(&mut initial::Context {
-        src: String::from("aa"),
+    let automaton = initial::Automaton::new();
+
+    println!("{:?}", automaton.run(&mut initial::Context {
+        src: String::from("baaaaaaaaa"),
         cur: 0
     }));
 }
