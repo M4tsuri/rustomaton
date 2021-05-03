@@ -1,4 +1,4 @@
-use syn::{Attribute, ExprCall, LitInt, Token, TypePath, punctuated::Punctuated, token::{Colon, RArrow}};
+use syn::{Attribute, Expr, ExprBinary, ExprCall, ExprParen, ExprPath, Ident, LitInt, Token, TypePath, punctuated::Punctuated, token::{Colon, Paren, RArrow}};
 use syn::parse::{ParseStream, Parse, Result};
 
 pub struct Rule {
@@ -6,7 +6,7 @@ pub struct Rule {
     _rarrow: RArrow,
     pub end_stat: LitInt,
     _colon: Colon,
-    pub transfer: ExprCall
+    pub transfer: Option<Expr>
 }
 
 pub struct Body {
@@ -23,7 +23,13 @@ impl Parse for Rule {
             _rarrow: input.parse()?,
             end_stat: input.parse()?,
             _colon: input.parse()?,
-            transfer: input.parse()?
+            transfer: {
+                if input.peek(Token![_]) {
+                    None
+                } else {
+                    Some(input.parse()?)
+                }
+            }
         })
     }
 }
@@ -35,7 +41,7 @@ impl Parse for Body {
         let mut init_state: Option<LitInt> = None;
         let mut fini_states: Option<Punctuated<LitInt, Token!(,)>> = None;
         let mut input_type: Option<TypePath> = None;
-
+        
         let attrs = input.call(Attribute::parse_outer)?;
         for attr in attrs {
             if attr.path.is_ident("input") {
