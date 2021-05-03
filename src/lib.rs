@@ -2,7 +2,7 @@ extern crate proc_macro;
 
 mod parse;
 
-use std::{array::from_mut, collections::HashSet};
+use std::collections::HashSet;
 
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
@@ -91,7 +91,7 @@ fn make_binary_clause(expr: &Box<Expr>, arg: &Ident) -> proc_macro2::TokenStream
 
 fn make_transfer_fn(func: &Option<Expr>) -> proc_macro2::TokenStream {
     match func {
-        None => quote! {|| true},
+        None => quote! {|_| true},
         Some(x) => {
             let arg = format_ident!("arg");
             let body = make_binary_clause(&Box::new(x.clone()), &arg);

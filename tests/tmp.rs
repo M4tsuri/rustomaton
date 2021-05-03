@@ -1,6 +1,4 @@
 mod initial {
-    use std::rc::Rc;
-
     use rustomaton::rustomaton;
 
     #[derive(Clone)]
@@ -47,7 +45,7 @@ mod initial {
 #[test]
 fn test_tmp() {
     println!("{:?}", initial::run(&mut initial::Context {
-        src: String::from("baab"),
+        src: String::from("baaaaaaaaa"),
         cur: 0
     }));
 }

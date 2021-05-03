@@ -1,4 +1,6 @@
-use syn::{Attribute, Expr, ExprBinary, ExprCall, ExprParen, ExprPath, Ident, LitInt, Token, TypePath, punctuated::Punctuated, token::{Colon, Paren, RArrow}};
+use syn::{Attribute, Expr, LitInt, Token, TypePath};
+use syn::punctuated::Punctuated;
+use syn::token::{Colon, RArrow};
 use syn::parse::{ParseStream, Parse, Result};
 
 pub struct Rule {
@@ -25,6 +27,7 @@ impl Parse for Rule {
             _colon: input.parse()?,
             transfer: {
                 if input.peek(Token![_]) {
+                    let _: Token![_] = input.parse()?;
                     None
                 } else {
                     Some(input.parse()?)
