@@ -1,15 +1,14 @@
 extern crate proc_macro;
 
 mod parse;
-
-use std::collections::HashSet;
+mod graph;
+mod transfer_fn;
 
 use proc_macro::TokenStream;
-use quote::{format_ident, quote};
-use syn::{BinOp, Expr, Ident, parse_macro_input};
+use quote::quote;
+use syn::parse_macro_input;
 use parse::Body;
-
-type State = u64;
+use graph::AutomatonContext;
 
 
 /// genarate the core function doing the execution
@@ -23,23 +22,12 @@ fn make_runtime_decl() -> proc_macro2::TokenStream {
             fn exhausted(&self) -> bool;
         }
 
-        enum TransferFn<T> {
-            Epsilon,
-            Cost(Box<dyn Fn(&mut T) -> bool>)
-        }
-
-        enum AutomatonType {
-            DFA,
-            NFA
-        }
-
         pub struct Automaton<T> {
-            auto_type: AutomatonType,
             init_state: State,
             fini_states: ::std::collections::HashSet<State>,
             states: ::std::collections::HashSet<State>,
             relations: ::std::collections::HashMap<State, Vec<State>>,
-            transfer: ::std::collections::HashMap<(State, State), TransferFn<T>>,
+            transfer: ::std::collections::HashMap<(State, State), Box<dyn Fn(&mut T) -> bool>>,
         }
         
         #[derive(Debug)]
@@ -50,89 +38,11 @@ fn make_runtime_decl() -> proc_macro2::TokenStream {
     }
 }
 
-/// generate implementation of transfer functions.
-///
-/// All generated functions have the form `|arg| -> bool {body}`
-///
-/// for example 
-/// - `_` will be transformed into 
-///   ```
-///   |_| true
-///   ```
-/// - `fun_sym` will be transformed into 
-///
-///   ```
-///   |__arg| {
-///     fun_sym(__arg)
-///   }
-///   ```
-///
-/// - `ret_closure(args)` will be transformed into
-///
-///   ```
-///   |__arg| {
-///     ret_closure(args)(__arg)
-///   }
-///   ```
-///
-///   , which is useful when you are fimiliar with currying
-/// - `fun_sym || ret_closure(args)` will be transformed into 
-///
-///   ```
-///   |__arg| {
-///     fun_sym(__arg) || ret_closure(args)(__arg)
-///   }
-///   ```
-fn make_binary_clause(expr: &Box<Expr>, arg: &Ident) -> proc_macro2::TokenStream {
-    match expr.as_ref() {
-        Expr::Binary(x) => {
-            let lhs = make_binary_clause(&x.left, arg);
-            let rhs = make_binary_clause(&x.right, arg);
-
-            match x.op {
-                BinOp::And(_) | BinOp::Or(_) => {
-                    let op = x.op;
-                    quote! {
-                        (#lhs #op #rhs)
-                    }
-                },
-                _ => panic!("unsupported binop.")
-            }
-        }
-        Expr::Call(x) => quote! {#x(#arg)},
-        Expr::Paren(x) => {
-            let inside = make_binary_clause(&x.expr, arg);
-            quote! {(#inside)}
-        },
-        Expr::Path(x) => quote! {#x(#arg)},
-        _ => panic!("unsupported representation.")
-    }
-}
-
-
-fn make_transfer_fn(func: &Option<Expr>) -> proc_macro2::TokenStream {
-    match func {
-        None => quote! {TransferFn::Epsilon},
-        Some(x) => {
-            let arg = format_ident!("__arg");
-            let body = make_binary_clause(&Box::new(x.clone()), &arg);
-            quote! {
-                TransferFn::Cost(::std::boxed::Box::new(|#arg| {
-                    #body
-                }))
-            }
-        }
-    }
-}
-
 fn make_runtime_exec() -> proc_macro2::TokenStream {
     quote! {
         impl<T: Exhausted> Automaton<T> {
             pub fn run(&self, context: &mut T) -> AutomatonResult {
-                match self.auto_type {
-                    AutomatonType::NFA => panic!("only DFA can be executed."),
-                    AutomatonType::DFA => self.__run(context, self.init_state)
-                }
+                self.__run(context, self.init_state)
             }
         
             fn __run(&self, context: &mut T, cur_state: State) -> AutomatonResult {
@@ -140,22 +50,19 @@ fn make_runtime_exec() -> proc_macro2::TokenStream {
                 let mut next_state: Option<State> = None;
         
                 for may_next_state in may_next_states {
-                    if let TransferFn::Cost(func) = self.transfer.get(&(cur_state, *may_next_state)).unwrap() {
-                        if !func(context) {
-                            continue;
-                        }
-
-                        if context.exhausted() {
-                            if self.fini_states.contains(may_next_state) {
-                                return AutomatonResult::Accepted;
-                            }
-                            return AutomatonResult::Rejected;
-                        }
-                        next_state = Some(*may_next_state);
-                        break;
-                    } else {
-                        panic!("initernal error.")
+                    let func = self.transfer.get(&(cur_state, *may_next_state)).unwrap();
+                    if !func(context) {
+                        continue;
                     }
+
+                    if context.exhausted() {
+                        if self.fini_states.contains(may_next_state) {
+                            return AutomatonResult::Accepted;
+                        }
+                        return AutomatonResult::Rejected;
+                    }
+                    next_state = Some(*may_next_state);
+                    break;
                 }
         
                 match next_state {
@@ -167,93 +74,10 @@ fn make_runtime_exec() -> proc_macro2::TokenStream {
     }
 }
 
-
-/// generate code to initialize the nodes, edges and transfer functions of this automaton
-fn make_runtime_impl(body: &Body) -> proc_macro2::TokenStream {
-    let init_state = &body.init_stat;
-    let input_type = &body.input_type;
-
-    // make sure relations and states are only innitialized once
-    let mut states_set: HashSet<State> = HashSet::new();
-    let mut begin_states_set: HashSet<State> = HashSet::new();
-    let mut relations_set: HashSet<(State, State)> = HashSet::new();
-
-    let mut fill_states: Vec<proc_macro2::TokenStream> = Vec::new();
-    let mut fill_relations: Vec<proc_macro2::TokenStream> = Vec::new();
-    let mut fill_transfers: Vec<proc_macro2::TokenStream> = Vec::new();
-
-    for rule in &body.rules {
-        let begin = &rule.begin_stat;
-        let end = &rule.end_stat;
-        let begin_base10 = begin.base10_parse::<u64>().unwrap();
-        let end_base10 = end.base10_parse::<u64>().unwrap();
-
-        if states_set.insert(end_base10) {
-            fill_states.push(quote! {
-                automaton.states.insert(#end);
-            });
-        }
-
-        if states_set.insert(begin_base10) {
-            fill_states.push(quote! {
-                automaton.states.insert(#begin);
-            });
-        }
-
-        if begin_states_set.insert(begin_base10) {
-            fill_relations.push(quote! {
-                automaton.relations.insert(#begin, ::std::vec::Vec::new());
-            });
-        }
-        
-        if relations_set.insert((begin_base10, end_base10)) {
-            fill_relations.push(quote! {
-                automaton.relations.get_mut(&#begin).unwrap().push(#end);
-            });
-
-            let transfer_fn = make_transfer_fn(&rule.transfer);
-
-            fill_transfers.push(quote! {
-                automaton.transfer.insert((#begin, #end), #transfer_fn);
-            });
-        } else {
-            panic!("duplicated relations.");
-        }
-    }
-
-    let fill_fini_states: Vec<proc_macro2::TokenStream> = body.fini_stats.iter().map(|x| {
-        quote! {
-            automaton.fini_states.insert(#x);
-        }
-    }).collect();
-    
-    quote! {
-        impl Automaton<#input_type> {
-            pub fn new() -> Self {
-                let mut automaton: Automaton<#input_type> = Automaton {
-                    auto_type: AutomatonType::DFA,
-                    init_state: #init_state,
-                    fini_states: ::std::collections::HashSet::new(),
-                    states: ::std::collections::HashSet::new(),
-                    relations: ::std::collections::HashMap::new(),
-                    transfer: ::std::collections::HashMap::new(),
-                };
-
-                #(#fill_fini_states)*
-                #(#fill_states)*
-                #(#fill_relations)*
-                #(#fill_transfers)*
-    
-                automaton
-            }
-        }
-    }
-}
-
 fn make_runtime(body: &Body) -> proc_macro2::TokenStream {
     let decls = make_runtime_decl();
     let exec = make_runtime_exec();
-    let impls = make_runtime_impl(body);
+    let impls = AutomatonContext::new(body);
     quote! {
         #decls
         #exec
