@@ -62,7 +62,7 @@ impl AutomatonContext {
     }
 
     fn to_dfa(&self) -> Self {
-        self.clone()
+        panic!("not implemented");
     }
 
     /// user must use a Epsilon transfer function to explicted show that its a NFA
