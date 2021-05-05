@@ -1,5 +1,6 @@
 mod initial {
-    use rustomaton::rustomaton;
+    pub use rustomaton::{Automaton, Exhausted, NewAutomaton};
+    use rustomaton_derive::rustomaton;
 
     /// the context used in this automaton
     #[derive(Clone)]
@@ -44,6 +45,7 @@ mod initial {
 
 #[test]
 fn test_tmp() {
+    use initial::NewAutomaton;
     let automaton = initial::Automaton::new();
 
     println!("{:?}", automaton.run(&mut initial::Context {

@@ -136,8 +136,8 @@ impl ToTokens for AutomatonContext {
         }).collect();
 
         tokens.extend(quote! {
-            impl Automaton<#input_type> {
-                pub fn new() -> Self {
+            impl NewAutomaton<#input_type> for Automaton<#input_type> {
+                fn new() -> Self {
                     let mut automaton: Automaton<#input_type> = Automaton {
                         init_state: #init_state,
                         fini_states: ::std::collections::HashSet::new(),
