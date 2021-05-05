@@ -55,7 +55,7 @@ impl<T: Exhausted> Automaton<T> {
         }
 
         match next_state {
-            Some(x) => self.__run(context, next_state.unwrap()),
+            Some(_) => self.__run(context, next_state.unwrap()),
             None => AutomatonResult::Rejected
         }
     }
