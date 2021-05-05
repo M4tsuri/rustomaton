@@ -65,7 +65,29 @@ impl AutomatonContext {
         self.clone()
     }
 
+    /// user must use a Epsilon transfer function to explicted show that its a NFA
+    /// for example, a NFA like this is not well-defined for our engine:
+    /// 
+    /// ```
+    /// 0 -> 1: eat("b");
+    /// 0 -> 2: eat("b");
+    /// ```
+    ///
+    /// it should be transformed into 
+    /// 
+    /// ```
+    /// 0 -> 3: _;
+    /// 0 -> 4: _;
+    /// 3 -> 1: eat("b");
+    /// 4 -> 2: eat("b");
+    /// ```
+    ///
     fn validate(&self) -> AutomatonType {
+        for (_, trans) in &self.edges {
+            if trans.is_none() {
+                return AutomatonType::NFA;
+            }
+        }
         AutomatonType::DFA
     }
 }
