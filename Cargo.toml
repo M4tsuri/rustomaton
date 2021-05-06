@@ -1,7 +1,7 @@
 [workspace]
 
 members = [
-    "rustomaton_derive",
+    "rustomaton_macro",
     "rustomaton",
 ]
 

@@ -1,6 +1,6 @@
 mod initial {
     pub use rustomaton::{AutomatonContext, Automaton};
-    use rustomaton_derive::rustomaton;
+    use rustomaton_macro::rustomaton;
 
     rustomaton!{
         #[init(0)]
