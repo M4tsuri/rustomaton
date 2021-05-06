@@ -20,8 +20,9 @@ pub struct Automaton {
     states: HashSet<State>,
     initial_state: State,
     final_states: HashSet<State>,
-    edges: HashMap<(State, State), Option<Expr>>,
-    edges_internel: HashMap<(State, State), Option<Vec<String>>>
+    edges: HashMap<State, Vec<State>>,
+    transfers: HashMap<(State, State), Option<Expr>>,
+    transfers_internel: HashMap<(State, State), Option<Vec<String>>>
 }
 
 impl Automaton {
@@ -61,10 +62,10 @@ impl Automaton {
     pub fn new(body: &Body) -> Self {
         let initial_state = body.init_stat.base10_parse::<u64>().unwrap();
 
-        // make sure relations and states are only innitialized once
+        let mut edges: HashMap<State, Vec<State>> = HashMap::new();
         let mut states: HashSet<State> = HashSet::new();
-        let mut edges: HashMap<(State, State), Option<Expr>> = HashMap::new();
-        let mut edges_internel: HashMap<(State, State), Option<Vec<String>>> = HashMap::new();
+        let mut transfers: HashMap<(State, State), Option<Expr>> = HashMap::new();
+        let mut transfers_internel: HashMap<(State, State), Option<Vec<String>>> = HashMap::new();
 
         let final_states: HashSet<State> = body.fini_stats.iter().map(|x| {
             x.base10_parse().unwrap()
@@ -73,19 +74,26 @@ impl Automaton {
         for rule in &body.rules {
             let begin = &rule.begin_stat;
             let end = &rule.end_stat;
-            let begin_base10 = begin.base10_parse::<u64>().unwrap();
-            let end_base10 = end.base10_parse::<u64>().unwrap();
+            let begin_base10 = begin.base10_parse::<State>().unwrap();
+            let end_base10 = end.base10_parse::<State>().unwrap();
 
             states.insert(end_base10);
             states.insert(begin_base10);
 
-            if edges.insert((begin_base10, end_base10), rule.transfer.clone()).is_some() {
+            if !edges.contains_key(&begin_base10) {
+                edges.insert(begin_base10, Vec::new());
+                
+            }
+            
+            edges.get_mut(&begin_base10).unwrap().push(end_base10);
+
+            if transfers.insert((begin_base10, end_base10), rule.transfer.clone()).is_some() {
                 panic!("duplicated relations.");
             }
         }
 
-        for (rel, trans) in &edges {
-            edges_internel.insert(rel.clone(), Self::parse_edge(&trans));
+        for (rel, trans) in &transfers {
+            transfers_internel.insert(rel.clone(), Self::parse_edge(&trans));
         }
 
         Automaton {
@@ -93,7 +101,8 @@ impl Automaton {
             initial_state,
             final_states,
             edges,
-            edges_internel
+            transfers,
+            transfers_internel
         }
     }
 
@@ -119,11 +128,7 @@ impl Automaton {
     /// ```
     ///
     fn validate(&self) -> AutomatonType {
-        for (_, trans) in &self.edges {
-            if trans.is_none() {
-                return AutomatonType::NFA;
-            }
-        }
+        
         AutomatonType::DFA
     }
 }
@@ -140,30 +145,30 @@ impl ToTokens for Automaton {
         let mut fill_relations: Vec<proc_macro2::TokenStream> = Vec::new();
         let mut fill_transfers: Vec<proc_macro2::TokenStream> = Vec::new();
 
-        let mut relation_begins: HashSet<State> = HashSet::new();
-
-        for state in &self.states {
-            fill_states.push(quote! {
+        fill_states.extend(self.states.iter().map(|state| {
+            quote! {
                 automaton.states.insert(#state);
-            });
-        }
-
-        for ((begin, end), transfer) in &self.edges {
-            let transfer_fn = make_transfer_fn(transfer);
-            if relation_begins.insert(*begin) {
-                fill_relations.push(quote! {
-                    automaton.relations.insert(#begin, ::std::vec::Vec::new());
-                });
             }
+        }));
 
+        for (begin, ends) in &self.edges {
             fill_relations.push(quote! {
-                automaton.relations.get_mut(&#begin).unwrap().push(#end);
+                automaton.relations.insert(#begin, ::std::vec::Vec::new());
             });
 
-            fill_transfers.push(quote! {
-                automaton.transfer.insert((#begin, #end), #transfer_fn);
-            });
+            fill_relations.extend(ends.iter().map(|end| {
+                quote! {
+                    automaton.relations.get_mut(&#begin).unwrap().push(#end);
+                }
+            }));
         }
+
+        fill_transfers.extend(self.transfers.iter().map(|((begin, end), transfer)| {
+            let transfer_fn = make_transfer_fn(transfer);
+            quote! {
+                automaton.transfer.insert((#begin, #end), #transfer_fn);
+            }
+        }));
 
         let fill_fini_states: Vec<proc_macro2::TokenStream> = self.final_states.iter().map(|x| {
             quote! {
