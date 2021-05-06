@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use quote::{ToTokens, quote};
 use proc_macro2::TokenStream;
-use syn::Expr;
+use syn::{Expr, Lit, Token, parse2};
 use crate::transfer_fn::make_transfer_fn;
 
 
@@ -20,16 +20,51 @@ pub struct Automaton {
     states: HashSet<State>,
     initial_state: State,
     final_states: HashSet<State>,
-    edges: HashMap<(State, State), Option<Expr>>
+    edges: HashMap<(State, State), Option<Expr>>,
+    edges_internel: HashMap<(State, State), Option<Vec<String>>>
 }
 
 impl Automaton {
+    fn extract_strs(expr: &Box<Expr>) -> Vec<String> {
+        let mut res = Vec::new();
+        match expr.as_ref() {
+            Expr::Binary(x) => {
+                res.extend(Self::extract_strs(&x.left));
+                res.extend(Self::extract_strs(&x.right));
+            },
+            Expr::Lit(s) => {
+                match &s.lit {
+                    Lit::Str(t) => res.push(t.value()),
+                    _ => panic!("automaton language type not match.")
+                }
+            },
+            Expr::Verbatim(x) => {
+                if let Ok(_) = parse2::<Token![_]>(x.clone()) {
+                    res.push(String::from(""));
+                } else {
+                    panic!("unsupported representation.");
+                }
+            },
+            _ => panic!("unsupported representation.")
+        }
+        res
+    }
+
+    fn parse_edge(expr: &Option<Expr>) -> Option<Vec<String>> {
+        if expr.is_none() {
+            return None;
+        }
+
+        Some(Self::extract_strs(&Box::new(expr.as_ref().unwrap().clone())))
+    }
+
     pub fn new(body: &Body) -> Self {
         let initial_state = body.init_stat.base10_parse::<u64>().unwrap();
 
         // make sure relations and states are only innitialized once
         let mut states: HashSet<State> = HashSet::new();
         let mut edges: HashMap<(State, State), Option<Expr>> = HashMap::new();
+        let mut edges_internel: HashMap<(State, State), Option<Vec<String>>> = HashMap::new();
 
         let final_states: HashSet<State> = body.fini_stats.iter().map(|x| {
             x.base10_parse().unwrap()
@@ -49,11 +84,16 @@ impl Automaton {
             }
         }
 
+        for (rel, trans) in &edges {
+            edges_internel.insert(rel.clone(), Self::parse_edge(&trans));
+        }
+
         Automaton {
             states,
             initial_state,
             final_states,
-            edges
+            edges,
+            edges_internel
         }
     }
 

@@ -1,5 +1,5 @@
 use quote::{format_ident, quote};
-use syn::{BinOp, Expr, Ident, Lit};
+use syn::{BinOp, Expr, Ident, Lit, Token, parse2};
 
 /// generate implementation of transfer functions.
 ///
@@ -54,7 +54,14 @@ fn make_binary_clause(expr: &Box<Expr>, arg: &Ident) -> proc_macro2::TokenStream
                 Lit::Str(t) => quote! {#arg.eat(#t)},
                 _ => panic!("automaton language type not match.")
             }
-        }
+        },
+        Expr::Verbatim(x) => {
+            if let Ok(_) = parse2::<Token![_]>(x.clone()) {
+                quote! {|| true}
+            } else {
+                panic!("unsupported representation.")
+            }
+        },
         _ => panic!("unsupported representation.")
     }
 }
