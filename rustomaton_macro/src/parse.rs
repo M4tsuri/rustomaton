@@ -8,7 +8,7 @@ pub struct Rule {
     _rarrow: RArrow,
     pub end_stat: LitInt,
     _colon: Colon,
-    pub transfer: Option<Expr>
+    pub transfer: Expr
 }
 
 pub struct Body {
@@ -24,14 +24,7 @@ impl Parse for Rule {
             _rarrow: input.parse()?,
             end_stat: input.parse()?,
             _colon: input.parse()?,
-            transfer: {
-                if input.peek(Token![_]) {
-                    let _: Token![_] = input.parse()?;
-                    None
-                } else {
-                    Some(input.parse()?)
-                }
-            }
+            transfer: input.parse()?
         })
     }
 }

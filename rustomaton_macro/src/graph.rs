@@ -1,9 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-use quote::{ToTokens, quote};
+use quote::{ToTokens, format_ident, quote};
 use proc_macro2::TokenStream;
 use syn::{Expr, Lit, Token, parse2};
-use crate::transfer_fn::make_transfer_fn;
 
 
 use crate::parse::Body;
@@ -21,17 +20,16 @@ pub struct Automaton {
     initial_state: State,
     final_states: HashSet<State>,
     edges: HashMap<State, Vec<State>>,
-    transfers: HashMap<(State, State), Option<Expr>>,
-    transfers_internel: HashMap<(State, State), Option<Vec<String>>>
+    transfers: HashMap<(State, State), Vec<String>>
 }
 
 impl Automaton {
-    fn extract_strs(expr: &Box<Expr>) -> Vec<String> {
+    fn parse_edge(expr: &Box<Expr>) -> Vec<String> {
         let mut res = Vec::new();
         match expr.as_ref() {
             Expr::Binary(x) => {
-                res.extend(Self::extract_strs(&x.left));
-                res.extend(Self::extract_strs(&x.right));
+                res.extend(Self::parse_edge(&x.left));
+                res.extend(Self::parse_edge(&x.right));
             },
             Expr::Lit(s) => {
                 match &s.lit {
@@ -51,21 +49,12 @@ impl Automaton {
         res
     }
 
-    fn parse_edge(expr: &Option<Expr>) -> Option<Vec<String>> {
-        if expr.is_none() {
-            return None;
-        }
-
-        Some(Self::extract_strs(&Box::new(expr.as_ref().unwrap().clone())))
-    }
-
     pub fn new(body: &Body) -> Self {
         let initial_state = body.init_stat.base10_parse::<u64>().unwrap();
 
         let mut edges: HashMap<State, Vec<State>> = HashMap::new();
         let mut states: HashSet<State> = HashSet::new();
-        let mut transfers: HashMap<(State, State), Option<Expr>> = HashMap::new();
-        let mut transfers_internel: HashMap<(State, State), Option<Vec<String>>> = HashMap::new();
+        let mut transfers: HashMap<(State, State), Vec<String>> = HashMap::new();
 
         let final_states: HashSet<State> = body.fini_stats.iter().map(|x| {
             x.base10_parse().unwrap()
@@ -87,13 +76,11 @@ impl Automaton {
             
             edges.get_mut(&begin_base10).unwrap().push(end_base10);
 
-            if transfers.insert((begin_base10, end_base10), rule.transfer.clone()).is_some() {
+            if transfers.insert(
+                (begin_base10, end_base10), 
+                Self::parse_edge(&Box::new(rule.transfer.clone()))).is_some() {
                 panic!("duplicated relations.");
             }
-        }
-
-        for (rel, trans) in &transfers {
-            transfers_internel.insert(rel.clone(), Self::parse_edge(&trans));
         }
 
         Automaton {
@@ -102,7 +89,6 @@ impl Automaton {
             final_states,
             edges,
             transfers,
-            transfers_internel
         }
     }
 
@@ -128,12 +114,19 @@ impl Automaton {
     /// ```
     ///
     fn validate(&self) -> AutomatonType {
-        
         AutomatonType::DFA
+    }
+
+    fn make_transfer_fn(strs: &Vec<String>) -> proc_macro2::TokenStream {
+        let param = format_ident!("__arg");
+        quote! {::std::boxed::Box::new(|#param| {
+            #(#param.eat(#strs))||*
+        })}
     }
 }
 
 impl ToTokens for Automaton {
+    
     fn to_tokens(&self, tokens: &mut TokenStream) {
         if let AutomatonType::NFA = self.validate() {
             return self.to_dfa().to_tokens(tokens);
@@ -164,7 +157,7 @@ impl ToTokens for Automaton {
         }
 
         fill_transfers.extend(self.transfers.iter().map(|((begin, end), transfer)| {
-            let transfer_fn = make_transfer_fn(transfer);
+            let transfer_fn = Self::make_transfer_fn(transfer);
             quote! {
                 automaton.transfer.insert((#begin, #end), #transfer_fn);
             }

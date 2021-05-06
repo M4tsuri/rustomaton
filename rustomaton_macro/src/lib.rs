@@ -2,7 +2,6 @@ extern crate proc_macro;
 
 mod parse;
 mod graph;
-mod transfer_fn;
 
 use proc_macro::TokenStream;
 use quote::quote;

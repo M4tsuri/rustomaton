@@ -2,7 +2,7 @@ mod initial {
     pub use rustomaton::{AutomatonContext, Automaton};
     use rustomaton_macro::rustomaton;
 
-    rustomaton!{
+    rustomaton! {
         #[init(0)]
         #[ends(3)]
 

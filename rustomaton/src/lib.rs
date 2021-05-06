@@ -26,7 +26,7 @@ impl AutomatonContext {
     }
 }
 
-pub trait Exhausted {
+trait Exhausted {
     fn exhausted(&self) -> bool;
 }
 pub struct Automaton {

@@ -21,6 +21,7 @@ mod initial {
 
 #[test]
 fn test_tmp() {
+    use initial::NewAutomaton;
     let automaton = initial::Automaton::new();
 
     println!("{:?}", automaton.run(&mut initial::AutomatonContext {
