@@ -12,7 +12,6 @@ pub struct Rule {
 }
 
 pub struct Body {
-    pub input_type: TypePath,
     pub init_stat: LitInt,
     pub fini_stats: Punctuated<LitInt, Token!(,)>,
     pub rules: Punctuated<Rule, Token!(;)>,
@@ -62,8 +61,7 @@ impl Parse for Body {
         Ok(Body {
             rules: input.call(Punctuated::parse_separated_nonempty)?,
             init_stat: init_state.ok_or(input.error("you must specify a initial state"))?,
-            fini_stats: fini_states.ok_or(input.error("you must specify final states."))?,
-            input_type: input_type.ok_or(input.error("you must specify a context type."))?
+            fini_stats: fini_states.ok_or(input.error("you must specify final states."))?
         })
     }
 }

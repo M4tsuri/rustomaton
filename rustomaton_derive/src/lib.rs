@@ -8,10 +8,10 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::parse_macro_input;
 use parse::Body;
-use graph::AutomatonContext;
+use graph::Automaton;
 
 fn make_runtime(body: &Body) -> proc_macro2::TokenStream {
-    let impls = AutomatonContext::new(body);
+    let impls = Automaton::new(body);
     quote! {
         #impls
     }

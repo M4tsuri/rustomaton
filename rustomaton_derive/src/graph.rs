@@ -16,17 +16,15 @@ pub enum AutomatonType {
 }
 
 #[derive(Clone)]
-pub struct AutomatonContext {
-    input_type: TypePath,
+pub struct Automaton {
     states: HashSet<State>,
     initial_state: State,
     final_states: HashSet<State>,
     edges: HashMap<(State, State), Option<proc_macro2::TokenStream>>
 }
 
-impl AutomatonContext {
+impl Automaton {
     pub fn new(body: &Body) -> Self {
-        let input_type = body.input_type.clone();
         let initial_state = body.init_stat.base10_parse::<u64>().unwrap();
 
         // make sure relations and states are only innitialized once
@@ -52,8 +50,7 @@ impl AutomatonContext {
             }
         }
 
-        AutomatonContext {
-            input_type,
+        Automaton {
             states,
             initial_state,
             final_states,
@@ -92,13 +89,12 @@ impl AutomatonContext {
     }
 }
 
-impl ToTokens for AutomatonContext {
+impl ToTokens for Automaton {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         if let AutomatonType::NFA = self.validate() {
             return self.to_dfa().to_tokens(tokens);
         }
 
-        let input_type = &self.input_type;
         let init_state = self.initial_state;
         
         let mut fill_states: Vec<proc_macro2::TokenStream> = Vec::new();
@@ -136,9 +132,13 @@ impl ToTokens for AutomatonContext {
         }).collect();
 
         tokens.extend(quote! {
-            impl NewAutomaton<#input_type> for Automaton<#input_type> {
+            pub trait NewAutomaton {
+                fn new() -> Automaton;
+            }
+            
+            impl NewAutomaton for Automaton {
                 fn new() -> Self {
-                    let mut automaton: Automaton<#input_type> = Automaton {
+                    let mut automaton: Automaton = Automaton {
                         init_state: #init_state,
                         fini_states: ::std::collections::HashSet::new(),
                         states: ::std::collections::HashSet::new(),

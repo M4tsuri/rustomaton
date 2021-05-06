@@ -1,5 +1,5 @@
 use quote::{format_ident, quote};
-use syn::{BinOp, Expr, Ident};
+use syn::{BinOp, Expr, Ident, Lit};
 
 /// generate implementation of transfer functions.
 ///
@@ -41,21 +41,20 @@ fn make_binary_clause(expr: &Box<Expr>, arg: &Ident) -> proc_macro2::TokenStream
             let rhs = make_binary_clause(&x.right, arg);
 
             match x.op {
-                BinOp::And(_) | BinOp::Or(_) => {
-                    let op = x.op;
+                BinOp::BitOr(_) => {
                     quote! {
-                        (#lhs #op #rhs)
+                        (#lhs || #rhs)
                     }
                 },
                 _ => panic!("unsupported binop.")
             }
-        }
-        Expr::Call(x) => quote! {#x(#arg)},
-        Expr::Paren(x) => {
-            let inside = make_binary_clause(&x.expr, arg);
-            quote! {(#inside)}
         },
-        Expr::Path(x) => quote! {#x(#arg)},
+        Expr::Lit(s) => {
+            match &s.lit {
+                Lit::Str(t) => quote! {#arg.eat(#t)},
+                _ => panic!("automaton language type not match.")
+            }
+        }
         _ => panic!("unsupported representation.")
     }
 }
