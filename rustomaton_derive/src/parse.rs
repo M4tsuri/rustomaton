@@ -1,4 +1,4 @@
-use syn::{Attribute, Expr, LitInt, Token, TypePath};
+use syn::{Attribute, Expr, LitInt, Token};
 use syn::punctuated::Punctuated;
 use syn::token::{Colon, RArrow};
 use syn::parse::{ParseStream, Parse, Result};
@@ -42,13 +42,10 @@ impl Parse for Body {
     fn parse(input: ParseStream) -> Result<Self> {
         let mut init_state: Option<LitInt> = None;
         let mut fini_states: Option<Punctuated<LitInt, Token!(,)>> = None;
-        let mut input_type: Option<TypePath> = None;
         
         let attrs = input.call(Attribute::parse_outer)?;
         for attr in attrs {
-            if attr.path.is_ident("input") {
-                input_type = Some(attr.parse_args()?);
-            } else if attr.path.is_ident("init") {
+            if attr.path.is_ident("init") {
                 init_state = Some(attr.parse_args()?);
             } else if attr.path.is_ident("ends") {
                 fini_states = Some(attr.parse_args_with(Punctuated::parse_separated_nonempty)?);

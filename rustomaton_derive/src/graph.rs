@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use quote::{ToTokens, quote};
 use proc_macro2::TokenStream;
-use syn::TypePath;
+use syn::Expr;
 use crate::transfer_fn::make_transfer_fn;
 
 
@@ -20,7 +20,7 @@ pub struct Automaton {
     states: HashSet<State>,
     initial_state: State,
     final_states: HashSet<State>,
-    edges: HashMap<(State, State), Option<proc_macro2::TokenStream>>
+    edges: HashMap<(State, State), Option<Expr>>
 }
 
 impl Automaton {
@@ -29,7 +29,7 @@ impl Automaton {
 
         // make sure relations and states are only innitialized once
         let mut states: HashSet<State> = HashSet::new();
-        let mut edges: HashMap<(State, State), Option<proc_macro2::TokenStream>> = HashMap::new();
+        let mut edges: HashMap<(State, State), Option<Expr>> = HashMap::new();
 
         let final_states: HashSet<State> = body.fini_stats.iter().map(|x| {
             x.base10_parse().unwrap()
@@ -44,8 +44,7 @@ impl Automaton {
             states.insert(end_base10);
             states.insert(begin_base10);
 
-            if edges.insert((begin_base10, end_base10), 
-                make_transfer_fn(&rule.transfer)).is_some() {
+            if edges.insert((begin_base10, end_base10), rule.transfer.clone()).is_some() {
                 panic!("duplicated relations.");
             }
         }
@@ -110,6 +109,7 @@ impl ToTokens for Automaton {
         }
 
         for ((begin, end), transfer) in &self.edges {
+            let transfer_fn = make_transfer_fn(transfer);
             if relation_begins.insert(*begin) {
                 fill_relations.push(quote! {
                     automaton.relations.insert(#begin, ::std::vec::Vec::new());
@@ -121,7 +121,7 @@ impl ToTokens for Automaton {
             });
 
             fill_transfers.push(quote! {
-                automaton.transfer.insert((#begin, #end), #transfer);
+                automaton.transfer.insert((#begin, #end), #transfer_fn);
             });
         }
 
@@ -135,7 +135,7 @@ impl ToTokens for Automaton {
             pub trait NewAutomaton {
                 fn new() -> Automaton;
             }
-            
+
             impl NewAutomaton for Automaton {
                 fn new() -> Self {
                     let mut automaton: Automaton = Automaton {
